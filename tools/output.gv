@@ -1,0 +1,52 @@
+digraph output {
+	Legend [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="3">
+<TR><TD  BGCOLOR = "#E0E0E0" COLSPAN="3">Layer</TD></TR>
+<TR><TD BGCOLOR = "#88FFFF"> Complexity <br/> (MFLOPs) </TD>
+<TD BGCOLOR = "#FF88FF"> Bandwidth <br/> (MB/s) </TD>
+<TD BGCOLOR = "#FFFF88"> Time <br/> (ms)</TD></TR>
+</TABLE>>
+ shape=plaintext]
+	Input [label="input: (1, 56, 56, 64)"]
+	"InceptionV1/InceptionV1/Conv2d_2c_3x3/Relu" [label=<
+<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="3">
+<TR>
+    <TD  BGCOLOR = "#A3A3A3" COLSPAN="3">InceptionV1/InceptionV1/Conv2d_2c_3x3/Relu</TD>
+</TR>
+<TR>
+    <TD  BGCOLOR = "#DDDDDD" COLSPAN="3">(192, 56, 56)</TD>
+</TR>
+<TR>
+    <TD BGCOLOR = "#FFFFFF"> 693.633024 <br/> (MFLOPs) </TD>
+    <TD BGCOLOR = "#FFFFFF"> 34.93 <br/> (MB/s) </TD>
+    <TD BGCOLOR = "#FFFF0"> 104.76 <br/> (ms)</TD>
+</TR>
+</TABLE>>
+ shape=plaintext]
+	Input -> "InceptionV1/InceptionV1/Conv2d_2c_3x3/Relu"
+	"InceptionV1/InceptionV1/MaxPool_3a_3x3/MaxPool" [label=<
+<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="3">
+<TR>
+    <TD  BGCOLOR = "#A3A3A3" COLSPAN="3">InceptionV1/InceptionV1/MaxPool_3a_3x3/MaxPool</TD>
+</TR>
+<TR>
+    <TD  BGCOLOR = "#DDDDDD" COLSPAN="3">(192, 28, 28)</TD>
+</TR>
+<TR>
+    <TD BGCOLOR = "#FFFFFF"> 1.354752 <br/> (MFLOPs) </TD>
+    <TD BGCOLOR = "#FFFFFF"> 699.67 <br/> (MB/s) </TD>
+    <TD BGCOLOR = "#FFFFCC"> 1.64 <br/> (ms)</TD>
+</TR>
+</TABLE>>
+ shape=plaintext]
+	"InceptionV1/InceptionV1/Conv2d_2c_3x3/Relu" -> "InceptionV1/InceptionV1/MaxPool_3a_3x3/MaxPool"
+	Output [label="output: [28, 28, 192]"]
+	"InceptionV1/InceptionV1/MaxPool_3a_3x3/MaxPool" -> Output
+	Summary [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="3">
+<TR><TD  BGCOLOR = "#C60000" COLSPAN="3">Summary</TD></TR>
+<TR><TD  BGCOLOR = "#E2E2E2" COLSPAN="3">1 SHV Processors</TD></TR>
+<TR><TD  BGCOLOR = "#DADADA" COLSPAN="3">Inference time 106.40 ms</TD></TR>
+<TR><TD  BGCOLOR = "#E2E2E2" COLSPAN="3">Bandwidth 45.19 MB/sec</TD></TR>
+<TR><TD  BGCOLOR = "#DADADA" COLSPAN="3">This network is Compute bound</TD></TR>
+</TABLE>>
+ shape=plaintext]
+}
