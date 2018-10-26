@@ -12,13 +12,31 @@ import numpy
 from flask import Flask, jsonify, render_template, request
 from mvnc import mvncapi as mvnc2
 
-logging.basicConfig(filename='mvnc2.log', level=logging.INFO)
-DEVICES = queue.Queue()
-app = Flask(__name__)
+FORMAT = '%(asctime)-15s %(message)s'
+logging.basicConfig(filename='mvnc2.log', level=logging.INFO, format=FORMAT)
+
+def init_app():
+    flask_app = Flask(__name__)
+    devices_queue = queue.Queue()
+    mvc2_devices = mvnc2.enumerate_devices()
+    logging.info("Found %d devices.", len(mvc2_devices))
+
+    device_id = 0
+    for mvc2_device in mvc2_devices:
+        dev = mvnc2.Device(mvc2_device)
+        dev.open()
+        devices_queue.put({"device": dev,
+                           "device_id": device_id})
+        device_id += 1
+
+    return flask_app, devices_queue
+
+app, DEVICES = init_app()
 
 @app.route('/', methods=['GET'])
 def start_page():
     return render_template("index.html")
+
 
 @app.route('/recognize_digit', methods=['GET', 'POST'])
 def recognize_digit():
@@ -26,11 +44,14 @@ def recognize_digit():
         request_file = request.files['the_file']
         image_name = str(uuid.uuid4())
         request_file.save(image_name)
-        device = None
-        while not device:
+        device_instance = None
+        while not device_instance:
             time.sleep(1)
-            device = DEVICES.get()
+            device_instance = DEVICES.get()
 
+        device = device_instance.get("device")
+        device_id = device_instance.get("device_id")
+        logging.info("Running on device: %d", device_id)
         inference = Inference(device, "mnist")
 
         try:
@@ -41,11 +62,14 @@ def recognize_digit():
             return jsonify({'status': False, 'message': str(ex)})
         finally:
             os.remove(image_name)
-            DEVICES.put(device)
+            inference.cleanup()
+            DEVICES.put(device_instance)
+            logging.info("Device %d returned to queue.", device_id)
 
-        return jsonify({'status': True, 'message': ""} + probabilities)
+        return jsonify({"status": True, "message": "", "probabilities": probabilities})
 
     return jsonify({'status': False, 'message': "Request method unsupported"})
+
 
 @app.route('/classify_picture', methods=['GET', 'POST'])
 def classify_picture():
@@ -53,11 +77,14 @@ def classify_picture():
         request_file = request.files['the_file']
         image_name = str(uuid.uuid4())
         request_file.save(image_name)
-        device = None
-        while not device:
+        device_instance = None
+        while not device_instance:
             time.sleep(1)
-            device = DEVICES.get()
+            device_instance = DEVICES.get()
 
+        device = device_instance.get("device")
+        device_id = device_instance.get("device_id")
+        logging.info("Running on device: %d", device_id)
         inference = Inference(device, "inception_v1")
 
         try:
@@ -68,11 +95,14 @@ def classify_picture():
             return jsonify({'status': False, 'message': str(ex)})
         finally:
             os.remove(image_name)
-            DEVICES.put(device)
+            inference.cleanup()
+            DEVICES.put(device_instance)
+            logging.info("Device %d returned to queue.", device_id)
 
-        return jsonify({'status': True, 'message': ""} + probabilities)
+        return jsonify({"status": True, "message": "", "probabilities": probabilities})
 
     return jsonify({'status': False, 'message': "Request method unsupported"})
+
 
 class Model():
     def load_categories(self):
@@ -157,13 +187,6 @@ class Inference():
         else:
             self.device = device
 
-        # Open the NCS
-        try:
-            self.device.open()
-        except Exception():
-            logging.error("Error opening device.")
-            raise
-
         # Init model
         if model_name.lower() == "mnist":
             self.model = Mnist()
@@ -177,10 +200,8 @@ class Inference():
         try:
             with open(graph_file_path, mode="rb") as graph_file:
                 in_memory_graph = graph_file.read()
-        except Exception():
+        except Exception:
             logging.error("Error reading graph file: %s.", graph_file_path)
-            device.close()
-            device.destroy()
             raise
 
         self.graph = mvnc2.Graph("mvnc2 graph")
@@ -226,14 +247,11 @@ class Inference():
 
     def cleanup(self):
         """ Cleans up the NCAPI resources. """
-        self.input_fifo.destroy()
-        self.output_fifo.destroy()
-        self.graph.destroy()
-        self.device.close()
-        self.device.destroy()
+        if self.input_fifo:
+            self.input_fifo.destroy()
 
+        if self.output_fifo:
+            self.output_fifo.destroy()
 
-if __name__ == "__main__":
-    # Get a list of ALL the sticks that are plugged in
-    for mvc2_device in mvnc2.enumerate_devices():
-        DEVICES.put(mvnc2.Device(mvc2_device))
+        if self.graph:
+            self.graph.destroy()
