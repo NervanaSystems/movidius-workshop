@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+    	<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+
+	<title>Intel Movidius Workshop</title>
+	<link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
+</head>
+<body>
+<img src="{{ url_for('static', filename='./intel_logo.png') }}" height="150px"/>
+
+<br />
+<h1>Classify image</h1>
+<div class="container">
+<form action="/classify_picture" method="POST" enctype='multipart/form-data' id="classifyImageForm">
+	<div class="form-group">
+		<label for="imageForClassification">Choose image</label>
+		<input type="file" class="form-control-file" name="the_file" id="imageForClassification" required />
+	</div>
+	<button type="submit" class="btn btn-primary">Classify</button>
+</form>
+</div>
+<br />
+<h1>Recognize digit</h1>
+<div class="container">
+<form action="/recognize_digit" method="POST" enctype='multipart/form-data' id="recognizeDigitForm">
+	<input type="file" name="the_file" required />
+	<br />
+	<input type="submit" value="Recognize" />
+</form>
+</div>
+<div class="container" id="show1"></div>
+<br />
+<script src="{{ url_for('static', filename='js/jquery.slim.js') }}"></script>
+<script src="{{ url_for('static', filename='js/bootstrap.min.js') }}"></script>
+<script>
+//	$(function() {
+//		$('#classifyImageForm').submit(function(event) {
+//			event.preventDefault();
+//			classifyImage(this);
+//		});
+//	});
+	
+	function classifyImage(form) {
+		$.ajax({
+			type: 'POST',
+			url:"/classify_picture",
+			data: new FormData(form),
+			cache: false,
+			contentType: false,
+			processData: false,
+			success: function(returnval) {
+			console.log("return", returnval);
+			     $("#show1").html(returnval);
+			     $('#show1').show();
+			 }
+		    });
+	}
+</script>
+</body>
