@@ -12,96 +12,97 @@ import numpy
 from flask import Flask, jsonify, render_template, request
 from mvnc import mvncapi as mvnc2
 
-FORMAT = '%(asctime)-15s %(message)s'
+FORMAT = '[%(asctime)-11s %(name)s] %(message)s'
 logging.basicConfig(filename='mvnc2.log', level=logging.INFO, format=FORMAT)
 
-def init_app():
-    flask_app = Flask(__name__)
-    devices_queue = queue.Queue()
-    mvc2_devices = mvnc2.enumerate_devices()
-    logging.info("Found %d devices.", len(mvc2_devices))
+class WebApp():
+    def __init__(self, ):
+        logging.info("Initializing web api...")
+        self.image_storage_dir = "request_images"
+        if not os.path.exists(self.image_storage_dir):
+            os.mkdir(self.image_storage_dir)
 
-    device_id = 0
-    for mvc2_device in mvc2_devices:
-        dev = mvnc2.Device(mvc2_device)
-        dev.open()
-        devices_queue.put({"device": dev,
-                           "device_id": device_id})
-        device_id += 1
+        self.requests_number = 0
+        self.app = Flask(__name__)
+        self.setup_flask()
 
-    return flask_app, devices_queue
+        self.devices_queue = queue.Queue()
+        self.setup_device_queue()
+        logging.info("Web api initialization done.")
 
-app, DEVICES = init_app()
+    def setup_flask(self):
+        start_time = time.time()
+        self.app.add_url_rule('/', 'index', self.start_page, methods=['GET'])
+        self.app.add_url_rule('/recognize_digit', 'recognize_digit', self.recognize_digit, methods=['GET', 'POST'])
+        self.app.add_url_rule('/classify_picture', 'classify_picture', self.classify_picture, methods=['GET', 'POST'])
+        setup_time = (time.time() - start_time) * 1000
+        logging.info("Flask setup done in %f ms.", setup_time)
 
-@app.route('/', methods=['GET'])
-def start_page():
-    return render_template("index.html")
+    def setup_device_queue(self):
+        start_time = time.time()
+        mvc2_devices = mvnc2.enumerate_devices()
+        logging.info("Found %d devices.", len(mvc2_devices))
 
+        device_id = 0
+        for mvc2_device in mvc2_devices:
+            dev = mvnc2.Device(mvc2_device)
+            dev.open()
+            self.devices_queue.put({"device": dev,
+                               "device_id": device_id})
+            device_id += 1
 
-@app.route('/recognize_digit', methods=['GET', 'POST'])
-def recognize_digit():
-    if request.method == 'POST':
-        request_file = request.files['the_file']
-        image_name = str(uuid.uuid4())
-        request_file.save(image_name)
-        device_instance = None
-        while not device_instance:
-            time.sleep(1)
-            device_instance = DEVICES.get()
+        setup_time = (time.time() - start_time) * 1000
+        logging.info("Movidius devices setup done in %f ms.", setup_time)
 
-        device = device_instance.get("device")
-        device_id = device_instance.get("device_id")
-        logging.info("Running on device: %d", device_id)
-        inference = Inference(device, "mnist")
+    def run(self, host="0.0.0.0", port=5000, threaded=False, debug=False):
+        self.app.run(host=host, port=port, threaded=threaded, debug=debug)
 
-        try:
-            inference.run(image_name)
-            probabilities = inference.get_propabilities()
-        except Exception as ex:
-            logging.error(str(ex))
-            return jsonify({'status': False, 'message': str(ex)})
-        finally:
-            os.remove(image_name)
-            inference.cleanup()
-            DEVICES.put(device_instance)
-            logging.info("Device %d returned to queue.", device_id)
+    def response(self, app_request, model):
+        if app_request.method == 'POST':
+            response_start_time = time.time()
+            self.requests_number += 1
+            request_ip = app_request.remote_addr
+            logger = logging.getLogger("{} {}".format(self.requests_number, request_ip))
+            request_file = app_request.files['the_file']
+            image_path = os.path.join(self.image_storage_dir, str(uuid.uuid4()))
+            request_file.save(image_path)
 
-        return jsonify({"status": True, "message": "", "probabilities": probabilities})
+            in_queue_start_time = time.time()
+            device_instance = self.devices_queue.get()
+            in_queue_time = (time.time() - in_queue_start_time) * 1000
+            logger.info("Spent %f ms in queue.", in_queue_time)
 
-    return jsonify({'status': False, 'message': "Request method unsupported"})
+            device = device_instance.get("device")
+            device_id = device_instance.get("device_id")
+            logger.info("Running on device: %d", device_id)
+            inference = Inference(device, model, logger)
 
+            try:
+                inference.run(image_path)
+                probabilities = inference.get_propabilities()
+            except Exception as ex:
+                logger.error(str(ex))
+                return jsonify({'status': False, 'message': str(ex)})
+            finally:
+                os.remove(image_path)
+                inference.cleanup()
+                self.devices_queue.put(device_instance)
+                logger.info("Device %d returned to queue.", device_id)
 
-@app.route('/classify_picture', methods=['GET', 'POST'])
-def classify_picture():
-    if request.method == 'POST':
-        request_file = request.files['the_file']
-        image_name = str(uuid.uuid4())
-        request_file.save(image_name)
-        device_instance = None
-        while not device_instance:
-            time.sleep(1)
-            device_instance = DEVICES.get()
+            response_time = (time.time() - response_start_time) * 1000
+            logger.info("Request response time: %f ms.", response_time)
+            return jsonify({"status": True, "message": "", "probabilities": probabilities})
 
-        device = device_instance.get("device")
-        device_id = device_instance.get("device_id")
-        logging.info("Running on device: %d", device_id)
-        inference = Inference(device, "inception_v1")
+        return jsonify({'status': False, 'message': "Request method unsupported"})
 
-        try:
-            inference.run(image_name)
-            probabilities = inference.get_propabilities()
-        except Exception as ex:
-            logging.error(str(ex))
-            return jsonify({'status': False, 'message': str(ex)})
-        finally:
-            os.remove(image_name)
-            inference.cleanup()
-            DEVICES.put(device_instance)
-            logging.info("Device %d returned to queue.", device_id)
+    def start_page(self):
+        return render_template("index.html")
 
-        return jsonify({"status": True, "message": "", "probabilities": probabilities})
+    def recognize_digit(self):
+        return self.response(request, "mnist")
 
-    return jsonify({'status': False, 'message': "Request method unsupported"})
+    def classify_picture(self):
+        return self.response(request, "inception_v1")
 
 
 class Model():
@@ -127,7 +128,6 @@ class InceptionV1(Model):
                 if cat != 'classes':
                     categories.append(cat)
 
-        logging.info('Number of categories: %d', len(categories))
         return categories
 
     def load_data(self, image_path: str):
@@ -160,7 +160,6 @@ class Mnist(Model):
     def load_categories(self):
         #Load categories
         categories = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
-        logging.info('Number of categories: %d', len(categories))
         return categories
 
     def load_data(self, image_path: str):
@@ -177,8 +176,9 @@ class Inference():
     """
     Inference class.
     """
+    initialization_queue = queue.Queue(maxsize=1)
 
-    def __init__(self, device, model_name):
+    def __init__(self, device, model_name, logger):
         """
         Creates and opens the Neural Compute device and creates a graph that can execute inferences on it.
         """
@@ -187,7 +187,10 @@ class Inference():
         else:
             self.device = device
 
+        self.logger = logger
+
         # Init model
+        self.logger.info("Initializing %s model.", model_name)
         if model_name.lower() == "mnist":
             self.model = Mnist()
         elif model_name.lower() == "inception_v1":
@@ -197,35 +200,53 @@ class Inference():
 
         graph_file_path = self.model.graph_path
         # Load graph file
+        start_time = time.time()
         try:
             with open(graph_file_path, mode="rb") as graph_file:
                 in_memory_graph = graph_file.read()
         except Exception:
-            logging.error("Error reading graph file: %s.", graph_file_path)
+            self.logger.error("Error reading graph file: %s.", graph_file_path)
             raise
 
+        self.graph = None
+        self.input_fifo = None
+        self.output_fifo = None
+
+        self.initialization_queue.put(0)
         self.graph = mvnc2.Graph("mvnc2 graph")
         self.input_fifo, self.output_fifo = self.graph.allocate_with_fifos(self.device, in_memory_graph,
                                                                            input_fifo_data_type=mvnc2.FifoDataType.FP16,
                                                                            output_fifo_data_type=mvnc2.FifoDataType.FP16)
+        _ = self.initialization_queue.get()
+        graph_alloc_time = (time.time() - start_time) * 1000
+        self.logger.info("Graph allocated in %f ms.", graph_alloc_time)
 
         if self.graph is None or self.input_fifo is None or self.output_fifo is None:
             raise Exception("Could not initialize device.")
 
+        self.inference_results = 0
+
     def run(self, image_path: str):
+        data_start = time.time()
         data = self.model.load_data(image_path)
+        data_load_time = (time.time() - data_start) * 1000
+        self.logger.info("Data loaded in %f.", data_load_time)
 
         # Start the inference by sending to the device/graph
+        start_time = time.time()
         self.graph.queue_inference_with_fifo_elem(self.input_fifo, self.output_fifo, data.astype(numpy.float16), None)
 
+        # Get the result from the device/graph.
+        self.inference_results, _ = self.output_fifo.read_elem()
+        execution_time = (time.time() - start_time) * 1000
+        self.logger.info("Evaluation done in %f ms.", execution_time)
+
     def get_propabilities(self, number_results: int = 5):
+        # Get dataset categories
         categories = self.model.load_categories()
 
-        # Get the result from the device/graph.
-        output, _ = self.output_fifo.read_elem()
-
         # Sort indices in order of highest probabilities
-        top_inds = (-output).argsort()[:number_results]
+        top_inds = (-self.inference_results).argsort()[:number_results]
 
         # Get the labels and probabilities for the top results from the inference
         inference_top_inds = []
@@ -235,7 +256,7 @@ class Inference():
         for index in range(0, number_results):
             inference_top_inds.append(str(top_inds[index]))
             inference_categories.append(categories[top_inds[index]])
-            inference_probabilities.append(str(output[top_inds[index]]))
+            inference_probabilities.append(str(self.inference_results[top_inds[index]]))
 
         results = {
             "inference_top_inds": inference_top_inds,
@@ -255,3 +276,8 @@ class Inference():
 
         if self.graph:
             self.graph.destroy()
+
+
+if __name__ == "__main__":
+    web_api = WebApp()
+    web_api.run(threaded=True)
