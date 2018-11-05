@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <title>Intel Movidius Workshop - image classification</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
+</head>
+<body>
+    <img src="{{ url_for('static', filename='./intel_logo.png') }}" height="150px"/>
+    <h2>Classification results of {{ model }}:</h2>
+    <table class="table table-bordered">
+        <tr>
+            <th>Category id</th>
+            <th>Category name</th>
+            <th>Probability</th>
+        </tr>
+        {% for value in probabilities %}
+        <tr>
+            <td>{{ value.category_id }}</td>
+            <td>{{ value.category_name }}</td>
+            <td>{{ value.probability }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+
+</body>

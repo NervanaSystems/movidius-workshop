@@ -1,5 +1,19 @@
 #!/usr/bin/env python3
-# Copyright(c) 2018 Intel Corporation.
+# ******************************************************************************
+# Copyright 2018 Intel Corporation
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ******************************************************************************
 
 import logging
 import os
@@ -12,8 +26,11 @@ import numpy
 from flask import Flask, jsonify, render_template, request
 from mvnc import mvncapi as mvnc2
 
+from models import model_factory
+
 FORMAT = '[%(asctime)-11s %(name)s] %(message)s'
 logging.basicConfig(filename='mvnc2.log', level=logging.INFO, format=FORMAT)
+
 
 class WebApp():
     def __init__(self, ):
@@ -57,13 +74,16 @@ class WebApp():
     def run(self, host="0.0.0.0", port=5000, threaded=False, debug=False):
         self.app.run(host=host, port=port, threaded=threaded, debug=debug)
 
-    def response(self, app_request, model):
-        if app_request.method == 'POST':
+    def response(self, app_request, model=None):
+        if app_request.method == "POST":
             response_start_time = time.time()
             self.requests_number += 1
             request_ip = app_request.remote_addr
             logger = logging.getLogger("{} {}".format(self.requests_number, request_ip))
-            request_file = app_request.files['the_file']
+            request_file = app_request.files["the_file"]
+            if model is None:
+                model = app_request.form["model"]
+
             image_path = os.path.join(self.image_storage_dir, str(uuid.uuid4()))
             request_file.save(image_path)
 
@@ -91,7 +111,7 @@ class WebApp():
 
             response_time = (time.time() - response_start_time) * 1000
             logger.info("Request response time: %f ms.", response_time)
-            return jsonify({"status": True, "message": "", "probabilities": probabilities})
+            return render_template("result.html", model=model, probabilities=probabilities)
 
         return jsonify({'status': False, 'message': "Request method unsupported"})
 
@@ -102,74 +122,7 @@ class WebApp():
         return self.response(request, "mnist")
 
     def classify_picture(self):
-        return self.response(request, "inception_v1")
-
-
-class Model():
-    def load_categories(self):
-        raise NotImplementedError("Not implemented.")
-
-    def load_data(self, image_path: str):
-        raise NotImplementedError("Not implemented.")
-
-
-class InceptionV1(Model):
-    def __init__(self):
-        self.image_dimensions = (224, 224)
-        self.graph_path = "inception_v1/inception_v1.graph"
-        self.categories_path = "inception_v1/categories.txt"
-
-    def load_categories(self):
-        #Load categories
-        categories = []
-        with open(self.categories_path, 'r') as categories_file:
-            for line in categories_file:
-                cat = line.split('\n')[0]
-                if cat != 'classes':
-                    categories.append(cat)
-
-        return categories
-
-    def load_data(self, image_path: str):
-        #Load preprocessing data
-        mean = 128
-        std = 1.0/128.0
-        img = cv2.imread(image_path).astype(numpy.float32)
-
-        dx, dy, _ = img.shape
-        delta = float(abs(dy-dx))
-        if dx > dy: #crop the x dimension
-            img = img[int(0.5*delta):dx-int(0.5*delta), 0:dy]
-        else:
-            img = img[0:dx, int(0.5*delta):dy-int(0.5*delta)]
-
-        img = cv2.resize(img, self.image_dimensions)
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-
-        for i in range(3):
-            img[:, :, i] = (img[:, :, i] - mean) * std
-
-        return img
-
-
-class Mnist(Model):
-    def __init__(self):
-        self.image_dimensions = (28, 28)
-        self.graph_path = "mnist/mnist.graph"
-
-    def load_categories(self):
-        #Load categories
-        categories = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
-        return categories
-
-    def load_data(self, image_path: str):
-        # Load image from disk and preprocess it to prepare it for the network assuming we are reading a .jpg or .png
-        img = cv2.imread(image_path)
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        img = cv2.resize(img, self.image_dimensions)
-        img = img.astype(numpy.float32)
-        img[:] = ((img[:]) * (1.0/255.0))
-        return img
+        return self.response(request)
 
 
 class Inference():
@@ -191,12 +144,7 @@ class Inference():
 
         # Init model
         self.logger.info("Initializing %s model.", model_name)
-        if model_name.lower() == "mnist":
-            self.model = Mnist()
-        elif model_name.lower() == "inception_v1":
-            self.model = InceptionV1()
-        else:
-            raise Exception("Model not recognized. Please use 'mnist' or 'incetpion_v1'.")
+        self.model = model_factory.get_model(model_name.lower())
 
         graph_file_path = self.model.graph_path
         # Load graph file
@@ -244,27 +192,34 @@ class Inference():
     def get_propabilities(self, number_results: int = 5):
         # Get dataset categories
         categories = self.model.load_categories()
+        if number_results >= len(categories):
+            number_results = len(categories) - 1
 
         # Sort indices in order of highest probabilities
         top_inds = (-self.inference_results).argsort()[:number_results]
 
         # Get the labels and probabilities for the top results from the inference
-        inference_top_inds = []
-        inference_categories = []
-        inference_probabilities = []
+        # inference_top_inds = []
+        # inference_categories = []
+        # inference_probabilities = []
 
+        results = []
+        # Get the labels and probabilities for the top results from the inference
         for index in range(0, number_results):
-            inference_top_inds.append(str(top_inds[index]))
-            inference_categories.append(categories[top_inds[index]])
-            inference_probabilities.append(str(self.inference_results[top_inds[index]]))
+            results.append({"category_id": str(top_inds[index]),
+                            "category_name": categories[top_inds[index]],
+                            "probability": str(self.inference_results[top_inds[index]])})
 
-        results = {
-            "inference_top_inds": inference_top_inds,
-            "inference_categories": inference_categories,
-            "inference_probabilities": inference_probabilities
-        }
+            #inference_top_inds.append(str(top_inds[index]))
+            #inference_categories.append(categories[top_inds[index]])
+            #inference_probabilities.append(str(self.inference_results[top_inds[index]]))
+
+        # results = {
+        #     "inference_top_inds": inference_top_inds,
+        #     "inference_categories": inference_categories,
+        #     "inference_probabilities": inference_probabilities
+        # }
         return results
-        #return inference_top_inds, inference_categories, inference_probabilities
 
     def cleanup(self):
         """ Cleans up the NCAPI resources. """
