@@ -15,6 +15,13 @@
 <div class="container">
 <form action="/classify_picture" method="POST" enctype='multipart/form-data' id="classifyImageForm">
 	<div class="form-group">
+		<label for="imageForClassification" id="imageForClassification">Choose model</label>
+		<select name="model">
+			<option value="inception_v1">Inception v1</option>
+			<option value="inception_v4">Inception v4</option>
+			<option value="agenet">AgeNet</option>
+			<option value="gendernet">GenderNet</option>
+		</select><br>
 		<label for="imageForClassification">Choose image</label>
 		<input type="file" class="form-control-file" name="the_file" id="imageForClassification" required />
 	</div>
